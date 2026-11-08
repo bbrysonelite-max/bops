@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+# Jumbo: Brent's shared memory layer, reached from this computer over the tailnet through tailscaled's local
+# proxy (bops-tailnet starts it on :1055) with this bot's own key (/root/.bops/jumbo-key, put there by Bops).
+#
+# Usage: bops-jumbo search "<what to look for>" [limit]     past decisions, facts, fixes, who/what/where
+#        bops-jumbo context                                  Brent's current profile and recent memories
+#        bops-jumbo capture "<one durable, verified fact>"   store something worth keeping
+set -euo pipefail
+URL="${JUMBO_URL:-http://100.104.215.67:8765/mcp}"
+PROXY="${JUMBO_PROXY:-http://localhost:1055}"
+KEY_FILE="${JUMBO_KEY_FILE:-/root/.bops/jumbo-key}"
+[ -s "$KEY_FILE" ] || { echo "no Jumbo key at $KEY_FILE (ask Brent to rejoin this computer to the tailnet)" >&2; exit 2; }
+cmd="${1:-}"; shift || true
+json_str() { printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g' | awk 'BEGIN{ORS="\\n"} {print}' | sed 's/\\n$//'; }
+case "$cmd" in
+  search)  [ $# -ge 1 ] || { echo "usage: bops-jumbo search \"query\" [limit]" >&2; exit 2; }
+           args="{\"query\":\"$(json_str "$1")\",\"limit\":${2:-8}}"; tool=memory_search ;;
+  context) args="{}"; tool=memory_context ;;
+  capture) [ $# -ge 1 ] || { echo "usage: bops-jumbo capture \"fact\"" >&2; exit 2; }
+           args="{\"content\":\"$(json_str "$1")\",\"source\":\"bops-boppy\"}"; tool=memory_capture ;;
+  *) sed -n 2,8p "$0" >&2; exit 2 ;;
+esac
+body="{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"$tool\",\"arguments\":$args}}"
+# The bridge answers as one server-sent event; the tool's text sits in result.content[0].text.
+curl -sS -m 30 -x "$PROXY" -X POST "$URL" \
+  -H "Authorization: Bearer $(tr -d '\r\n' < "$KEY_FILE")" \
+  -H "Content-Type: application/json" -H "Accept: application/json, text/event-stream" \
+  -d "$body" \
+| sed -n 's/^data: //p' \
+| python3 -c '
+import sys, json
+for line in sys.stdin:
+    line = line.strip()
+    if not line: continue
+    d = json.loads(line)
+    if "error" in d: print("Jumbo error:", json.dumps(d["error"])); sys.exit(1)
+    for c in d.get("result", {}).get("content", []):
+        if c.get("type") == "text": print(c["text"])
+' 2>/dev/null || { echo "(raw)"; }

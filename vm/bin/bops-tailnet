@@ -23,7 +23,10 @@ mkdir -p /run/tailscale /var/log/bops
 
 if [ "$FRESH" = "--fresh" ]; then pkill -x tailscaled || true; sleep 1; fi
 if ! ts status >/dev/null 2>&1 && ! pgrep -x tailscaled >/dev/null; then
+  # Userspace networking has no TUN device, so programs on this computer reach the tailnet (Jumbo on
+  # cheesegrater) only through this local proxy: curl -x localhost:1055 http://100.x.y.z:port/...
   setsid nohup "$DIR/tailscaled" --tun=userspace-networking --state=mem: --socket="$SOCK" \
+    --socks5-server=localhost:1055 --outbound-http-proxy-listen=localhost:1055 \
     < /dev/null > /var/log/bops/tailscaled.log 2>&1 &
   for _ in $(seq 1 40); do [ -S "$SOCK" ] && break; sleep 0.25; done
 fi

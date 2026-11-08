@@ -41,8 +41,12 @@ function joinOnce(b: Bot, fresh: boolean): Promise<string | null> {
 
 async function join_(b: Bot, fresh: boolean) {
   const script = readFileSync(join(process.cwd(), "vm/bin/bops-tailnet")).toString("base64");
+  const jumboCli = readFileSync(join(process.cwd(), "vm/bin/bops-jumbo")).toString("base64");
   const key = Buffer.from(process.env.TAILSCALE_AUTH_KEY!).toString("base64");
   const name = `bops-${b.id}`;
+  // Jumbo (Brent's memory layer on the tailnet): the bot's own client key goes along, to stay on its computer
+  // at /root/.bops/jumbo-key for `curl -x localhost:1055 -H "Authorization: Bearer $(cat /root/.bops/jumbo-key)"`.
+  const jumbo = process.env.BOPS_JUMBO_KEY ? Buffer.from(process.env.BOPS_JUMBO_KEY).toString("base64") : "";
   // A computer without our record of it is new or forked: restart tailscaled so it gets its own identity.
   const res = await orgo.bash(
     b.computerId!,
@@ -50,6 +54,8 @@ async function join_(b: Bot, fresh: boolean) {
       `echo ${script} | base64 -d > /usr/local/bin/bops-tailnet && chmod 755 /usr/local/bin/bops-tailnet`,
       "mkdir -p /root/.bops && chmod 700 /root/.bops",
       `echo ${key} | base64 -d > /root/.bops/ts-authkey && chmod 600 /root/.bops/ts-authkey`,
+      ...(jumbo ? [`echo ${jumbo} | base64 -d > /root/.bops/jumbo-key && chmod 600 /root/.bops/jumbo-key`] : []),
+      `echo ${jumboCli} | base64 -d > /usr/local/bin/bops-jumbo && chmod 755 /usr/local/bin/bops-jumbo`,
       `bops-tailnet ${name} ${fresh || !b.tailnet ? "--fresh" : ""} 2>&1; rm -f /root/.bops/ts-authkey`,
     ].join("\n"),
     120,
