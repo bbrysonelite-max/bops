@@ -10,6 +10,7 @@ import { orgoHeaders } from "./app-version";
 import { billedByUse, cloudOn, cloudSessionNow } from "./cloud";
 import { callOrgo, computerChanges, orgo, orgoProjectFor, OrgoError, ownedWorkspace } from "./orgo";
 import { loadOrgoKey, orgoOrigin } from "./orgo-auth";
+import { freshOwnRam } from "@/lib/own-ram";
 import { addMessage, getState, stateEpoch, update } from "./store";
 
 /**
@@ -708,13 +709,18 @@ export async function makeOwnComputer(b: Bot, main: Bot, name: string, epoch = s
     const ram = (await orgo.computer(from).catch(() => null))?.ram || main.computerRam;
     sameUser(epoch);
     if (ram && main.computerRam !== ram && main.computerId === from) update(() => (main.computerRam = ram));
-    const { plan, short } = await planNow((p) => planShort(p, 1, ram));
+    // The main bot's is Orgo's free Bops computer: its host runs nothing else and Orgo won't fork or clone
+    // it (409 "Bops computers can't be cloned"), so this one is made fresh from the template on the Orgo
+    // plan, at freshOwnRam's size (0: none of Orgo's sizes fits, and planShort says the memory is short).
+    const fresh = !!main.freeComputer;
+    const { plan, short } = await planNow((p) => planShort(p, 1, fresh ? (freshOwnRam(p?.memory) ?? (p?.memory ? 0 : undefined)) : ram));
     // The Bops plan decides: one of Max's Bops computers, fresh from the template (a copy would be an
     // Orgo plan computer), else one on the Orgo plan (onOrgoPlan), else it shares the main bot's and says why.
     if (plan?.bops) return makeBopsComputer(name, epoch, (why) => onOrgoPlan(b, main, name, why, epoch), workspaceOf(b));
     if (short) return shareInstead(b, main, limitOf(short, plan, main), epoch);
     try {
       sameUser(epoch);
+      if (fresh) return await orgo.create(name, { ram: freshOwnRam(plan?.memory), wsId: workspaceOf(b) });
       const clone = (forkErr?: Error) =>
         orgo.clone(from, name, workspaceOf(b)).catch((cloneErr: Error) => {
           if (planRefusal(cloneErr) || !forkErr) throw cloneErr;
