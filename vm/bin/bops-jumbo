@@ -9,6 +9,7 @@ set -euo pipefail
 URL="${JUMBO_URL:-http://100.104.215.67:8765/mcp}"
 PROXY="${JUMBO_PROXY:-http://localhost:1055}"
 KEY_FILE="${JUMBO_KEY_FILE:-/root/.bops/jumbo-key}"
+SRC="bops-${BOPS_BOT:-$(hostname | sed 's/^bops-//')}"   # this bot's name, as the capture source
 [ -s "$KEY_FILE" ] || { echo "no Jumbo key at $KEY_FILE (ask Brent to rejoin this computer to the tailnet)" >&2; exit 2; }
 cmd="${1:-}"; shift || true
 json_str() { printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g' | awk 'BEGIN{ORS="\\n"} {print}' | sed 's/\\n$//'; }
@@ -17,7 +18,7 @@ case "$cmd" in
            args="{\"query\":\"$(json_str "$1")\",\"limit\":${2:-8}}"; tool=memory_search ;;
   context) args="{}"; tool=memory_context ;;
   capture) [ $# -ge 1 ] || { echo "usage: bops-jumbo capture \"fact\"" >&2; exit 2; }
-           args="{\"content\":\"$(json_str "$1")\",\"source\":\"bops-boppy\"}"; tool=memory_capture ;;
+           args="{\"content\":\"$(json_str "$1")\",\"source\":\"$SRC\"}"; tool=memory_capture ;;
   *) sed -n 2,8p "$0" >&2; exit 2 ;;
 esac
 body="{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"$tool\",\"arguments\":$args}}"

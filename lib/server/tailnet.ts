@@ -13,6 +13,12 @@ import { bot, update } from "./store";
 
 const joining = new Map<string, Promise<string | null>>();
 
+/** The bot's own Jumbo client key: env BOPS_JUMBO_KEY_<BOTID> (id upper-cased, non [A-Z0-9] → _), else BOPS_JUMBO_KEY. */
+export function jumboKeyFor(botId: string): string | undefined {
+  const name = "BOPS_JUMBO_KEY_" + botId.toUpperCase().replace(/[^A-Z0-9]/g, "_");
+  return process.env[name] ?? process.env.BOPS_JUMBO_KEY;
+}
+
 /** True when this Mac can reach the computer's Chrome over the tailnet right now. */
 export async function tailnetUp(b: Bot) {
   if (!b.tailnet) return false;
@@ -44,9 +50,10 @@ async function join_(b: Bot, fresh: boolean) {
   const jumboCli = readFileSync(join(process.cwd(), "vm/bin/bops-jumbo")).toString("base64");
   const key = Buffer.from(process.env.TAILSCALE_AUTH_KEY!).toString("base64");
   const name = `bops-${b.id}`;
-  // Jumbo (Brent's memory layer on the tailnet): the bot's own client key goes along, to stay on its computer
-  // at /root/.bops/jumbo-key for `curl -x localhost:1055 -H "Authorization: Bearer $(cat /root/.bops/jumbo-key)"`.
-  const jumbo = process.env.BOPS_JUMBO_KEY ? Buffer.from(process.env.BOPS_JUMBO_KEY).toString("base64") : "";
+  // Jumbo (Brent's memory layer on the tailnet): this bot's own client key (jumboKeyFor) goes along, to stay on
+  // its computer at /root/.bops/jumbo-key for `curl -x localhost:1055 -H "Authorization: Bearer $(cat /root/.bops/jumbo-key)"`.
+  const jumboKey = jumboKeyFor(b.id);
+  const jumbo = jumboKey ? Buffer.from(jumboKey).toString("base64") : "";
   // A computer without our record of it is new or forked: restart tailscaled so it gets its own identity.
   const res = await orgo.bash(
     b.computerId!,
